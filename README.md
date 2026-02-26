@@ -10,9 +10,9 @@
 
 ---
 
-> ⚠️ **Note on Reproducibility**
-> 
-> An earlier version of the code and data uploaded to this repository contained an error that affected reproducibility. This has since been identified and corrected. The current code and data on this repository are correct and should reproduce the results reported in the paper. We encourage users to use the current code and data and to open a GitHub issue if they encounter any difficulties reproducing the results.
+## ⚠️ **Note on Reproducibility**
+
+An earlier version of the code and data uploaded to this repository contained an error that affected reproducibility. This has since been identified and corrected. The current code and data on this repository are correct and should reproduce the results reported in the paper. We encourage users to use the current code and data and to open a GitHub issue if they encounter any difficulties reproducing the results.
 
 ## Overview
 
