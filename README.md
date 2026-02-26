@@ -84,15 +84,15 @@ pip install -r requirements.txt
 
 ### 2. Download data
 
-See the [Data](../../wiki/Data) wiki page for download links and the expected directory layout.
+See the [Data](https://github.com/shubham526/SIGIR2025-QDER/wiki/Data) wiki page for download links and the expected directory layout.
 
 ### 3. Run the pipeline
 
 Full step-by-step instructions are in the wiki:
 
-- [Entity Ranking Pipeline](../../wiki/Entity-Ranking-Pipeline) — data prep + MonoBERT training + inference
-- [Document Ranking Pipeline](../../wiki/Document-Ranking-Pipeline) — data prep + QDER training + inference
-- [Reproducing Paper Results](../../wiki/Reproducing-Paper-Results) — combining folds and running `trec_eval`
+- [Entity Ranking Pipeline](https://github.com/shubham526/SIGIR2025-QDER/wiki/Entity-Ranking-Pipeline) — data prep + MonoBERT training + inference
+- [Document Ranking Pipeline](https://github.com/shubham526/SIGIR2025-QDER/wiki/Document-Ranking-Pipeline) — data prep + QDER training + inference
+- [Reproducing Paper Results](https://github.com/shubham526/SIGIR2025-QDER/wiki/Reproducibilty) — combining folds and running `trec_eval`
 
 ---
 
