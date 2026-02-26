@@ -10,6 +10,10 @@
 
 ---
 
+> ⚠️ **Note on Reproducibility**
+> 
+> An earlier version of the code and data uploaded to this repository contained an error that affected reproducibility. This has since been identified and corrected. The current code and data on this repository are correct and should reproduce the results reported in the paper. We encourage users to use the current code and data and to open a GitHub issue if they encounter any difficulties reproducing the results.
+
 ## Overview
 
 QDER is a dual-channel neural re-ranking model that integrates knowledge graph semantics into a multi-vector ranking framework. Rather than computing similarity on aggregated embeddings, QDER maintains individual token and entity representations throughout the ranking process — an approach we call **late aggregation** — transforming them through query-specific attention before combining via learned interaction operations (addition + multiplication) and bilinear scoring. The final score interpolates QDER's output with BM25 using Coordinate Ascent.
