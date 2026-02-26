@@ -1,238 +1,327 @@
-# How To Run The Entity Ranking Code
+# Train Entity Ranking Model (Step 1.4)
 
-## Understanding MonoBert vs DuoBert
+## Overview
 
-### **The Correct Mapping**
+Fine-tune MonoBERT for pointwise entity ranking using 5-fold cross-validation. The model learns to distinguish entities semantically relevant to a query from non-relevant ones, based on their DBpedia descriptions. The resulting entity rankings guide document filtering in Stage 2.
 
-| Model | Task | Training Approach | Output | Loss Function |
-|-------|------|-------------------|--------|---------------|
-| **MonoBert** | Classification (Pointwise) | Single query-doc pairs with binary labels | 2 classes: [non-relevant, relevant] | CrossEntropyLoss |
-| **DuoBert** | Ranking (Pairwise) | Query + positive doc vs query + negative doc | Single relevance score | MarginRankingLoss |
+The codebase supports two model variants via `--task`: **MonoBERT** (classification, pointwise) for entity ranking in this step, and **DuoBERT** (ranking, pairwise) for document ranking in Step 2.3.
 
-### **Why This Mapping?**
+| | MonoBERT | DuoBERT |
+|:--|:--|:--|
+| `--task` | `classification` | `ranking` |
+| Training approach | Single query-doc pairs with binary labels | Query + positive/negative doc pairs |
+| Head | `Linear(768 → 2)` | `Linear(768 → 1)` |
+| Loss | CrossEntropyLoss | MarginRankingLoss (margin=1) |
+| Inference score | Softmax prob of class 1 | Raw scalar |
+| Use case | Entity ranking (this step) | Document re-ranking (Step 2.3) |
 
-**MonoBert** = **Classification** (Pointwise):
-- Processes ONE query-document pair at a time
-- Outputs a binary classification: "Is this document relevant?"
-- Training data: Individual (query, document, label) triples
-- Label: 0 (non-relevant) or 1 (relevant)
+---
 
-**DuoBert** = **Ranking** (Pairwise):
-- Processes TWO documents per query: positive and negative
-- Learns to rank: "Which document is MORE relevant?"
-- Training data: (query, doc_positive, doc_negative) triples
-- No explicit label needed - positive should score > negative
+## Required Inputs
 
-## Data Format Requirements
+1. **Training Data** (`entity_train.jsonl`): From Step 1.3
+2. **Validation Data** (`entity_test.jsonl`): From Step 1.3
+3. **Entity QRELs** (`entity_qrels.txt`): From Step 1.1
 
-### For Classification Task (MonoBert)
+---
 
-**Training Data Format:**
+## Data Format
+
+### Classification Task — MonoBERT (this step)
+
+Each line in `entity_train.jsonl` / `entity_test.jsonl` must be a JSON object:
+
 ```json
 {
-  "query": "what is machine learning",
-  "doc_text": "Machine learning is a subset of AI...",
-  "label": 1,
-  "query_id": "q1",
-  "doc_id": "d1"
+  "query_id": "301",
+  "query": "International organized crime",
+  "doc_id": "Q30",
+  "doc": "The United States of America is a country primarily located in North America...",
+  "label": 1
 }
 ```
 
-**Fields:**
-- `query`: Query text
-- `doc_text`: Document text
-- `label`: 0 (non-relevant) or 1 (relevant)
-- `query_id`: Query identifier
-- `doc_id`: Document identifier
+| Field | Type | Description |
+|:------|:-----|:------------|
+| `query_id` | string | Query identifier |
+| `query` | string | Query text |
+| `doc_id` | string | Entity identifier (e.g., Wikidata/DBpedia ID) |
+| `doc` | string | Entity description text — encoded as `[CLS] query [SEP] entity_description [SEP]` |
+| `label` | int | Relevance label (1 = relevant, 0 = non-relevant) |
 
-### For Ranking Task (DuoBert)
+**Notes**:
+- Data from Step 1.2 is already 1:1 balanced (equal positives/negatives per query)
+- Training data contains only entities that appear exclusively in relevant OR non-relevant documents (shared entities are filtered in Step 1.1)
+- Both `"doc"` and `"doc_text"` field names are supported for the entity description
 
-**Training Data Format:**
+### Ranking Task — DuoBERT (Step 2.3)
+
+Training data requires positive/negative pairs per query:
+
 ```json
 {
-  "query": "what is machine learning",
-  "doc_pos_text": "Machine learning is a subset of AI...",
-  "doc_neg_text": "The weather today is sunny...",
-  "query_id": "q1",
-  "doc_id": "d1"
+  "query_id": "301",
+  "query": "International organized crime",
+  "doc_id": "d1",
+  "doc_pos_text": "Relevant document text...",
+  "doc_neg_text": "Non-relevant document text..."
 }
 ```
 
-**Fields:**
-- `query`: Query text
-- `doc_pos_text`: Positive (relevant) document text
-- `doc_neg_text`: Negative (non-relevant) document text
-- `query_id`: Query identifier
-- `doc_id`: Document identifier (for the positive doc)
+Test/dev data for both tasks uses the same pointwise format as the classification training data above.
 
-**Test/Dev Data Format (same for both tasks):**
-```json
-{
-  "query": "what is machine learning",
-  "doc_text": "Machine learning is a subset of AI...",
-  "label": 1,
-  "query_id": "q1",
-  "doc_id": "d1"
-}
-```
-
-## Usage
-
-### Training with Classification (MonoBert)
-
-```bash
-python train.py \
-    --train train.jsonl \
-    --dev dev.jsonl \
-    --save-dir ./checkpoints \
-    --qrels dev.qrels.txt \
-    --task classification \
-    --mode cls \
-    --query-enc bert \
-    --batch-size 8 \
-    --epoch 20 \
-    --use-cuda \
-    --cuda 0
-```
-
-### Training with Ranking (DuoBert)
-
-```bash
-python train.py \
-    --train train_pairwise.jsonl \
-    --dev dev.jsonl \
-    --save-dir ./checkpoints \
-    --qrels dev.qrels.txt \
-    --task ranking \
-    --mode cls \
-    --query-enc bert \
-    --batch-size 8 \
-    --epoch 20 \
-    --use-cuda \
-    --cuda 0
-```
-
-### Testing
-
-```bash
-# Test with MonoBert
-python test.py \
-    --test test.jsonl \
-    --run test.run \
-    --checkpoint ./checkpoints/model.bin \
-    --task classification \
-    --use-cuda
-
-# Test with DuoBert
-python test.py \
-    --test test.jsonl \
-    --run test.run \
-    --checkpoint ./checkpoints/model.bin \
-    --task ranking \
-    --use-cuda
-```
-
-## Arguments
-
-### Common Arguments
-
-- `--train`: Path to training data (JSONL format)
-- `--dev`: Path to development/validation data
-- `--test`: Path to test data
-- `--save-dir`: Directory to save checkpoints
-- `--qrels`: Ground truth relevance judgments (TREC format)
-- `--task`: **[IMPORTANT]** `classification` or `ranking`
-- `--mode`: Pooling mode (`cls` or `pooling`)
-- `--query-enc`: Encoder type (bert, roberta, distilbert, etc.)
-- `--max-len`: Maximum sequence length (default: 512)
-- `--batch-size`: Batch size (default: 8)
-- `--learning-rate`: Learning rate (default: 2e-5)
-- `--epoch`: Number of epochs (default: 20)
-- `--use-cuda`: Enable CUDA
-- `--cuda`: CUDA device number
-
-## How Training Works
-
-### Classification (MonoBert)
-
-1. **Input**: Single (query, document) pair
-2. **Forward Pass**: `model(input_ids, attention_mask, segment_ids)`
-3. **Output**: 2-dimensional logits [score_non_relevant, score_relevant]
-4. **Loss**: CrossEntropyLoss between output and binary label
-5. **Evaluation**: Use softmax probability of relevant class (index 1)
-
-### Ranking (DuoBert)
-
-1. **Input**: (query, doc_positive) and (query, doc_negative) pairs
-2. **Forward Pass**: 
-   - `score_pos = model(query + doc_positive)`
-   - `score_neg = model(query + doc_negative)`
-3. **Output**: Single relevance score for each document
-4. **Loss**: MarginRankingLoss ensures score_pos > score_neg by margin=1
-5. **Evaluation**: Use raw relevance score
+---
 
 ## Model Architecture
 
-Both MonoBert and DuoBert use the same base architecture from `model.py`:
+Both models share the same BERT encoder base (`model.py`), differing only in the output head:
 
-```python
-# MonoBert - outputs 2 classes
-class MonoBert(Bert):
-    def __init__(self, pretrained: str, mode: str = 'cls'):
-        Bert.__init__(self, pretrained, mode)
-        self._dense = nn.Linear(self._config.hidden_size, 2)
+1. **Input**: `[CLS] query [SEP] document_text [SEP]`
+2. **Encoder**: BERT-base-uncased (or specified via `--query-enc`)
+3. **Pooling**: `[CLS]` token embedding (768-dim) if `--mode cls`, or pooled output if `--mode pooling`
+4. **MonoBERT head**: `Linear(768 → 2)` — logits for [non-relevant, relevant]; inference score = softmax prob of class 1
+5. **DuoBERT head**: `Linear(768 → 1)` — single relevance score; inference score = raw scalar
 
-# DuoBert - outputs 1 score
-class DuoBert(Bert):
-    def __init__(self, pretrained: str, mode: str = 'cls'):
-        Bert.__init__(self, pretrained, mode)
-        self._dense = nn.Linear(self._config.hidden_size, 1)
+---
+
+## Training
+
+### Single Fold
+
+```bash
+python train.py \
+  --train data/entity_folds/fold-0/entity_train.jsonl \
+  --dev data/entity_folds/fold-0/entity_test.jsonl \
+  --qrels data/robust04/entity_qrels.txt \
+  --save-dir models/entity_ranker/fold-0 \
+  --save model.bin \
+  --run dev_entity_run.txt \
+  --task classification \
+  --max-len 512 \
+  --query-enc bert \
+  --mode cls \
+  --epoch 10 \
+  --batch-size 32 \
+  --learning-rate 2e-5 \
+  --n-warmup-steps 1000 \
+  --metric map \
+  --eval-every 1 \
+  --num-workers 4 \
+  --use-cuda \
+  --cuda 0
 ```
 
-## Available Encoders
+### All 5 Folds
 
-- `bert`: bert-base-uncased
-- `distilbert`: distilbert-base-uncased
-- `roberta`: roberta-base
-- `deberta`: microsoft/deberta-base
-- `ernie`: nghuyong/ernie-2.0-base-en
-- `electra`: google/electra-small-discriminator
-- `conv-bert`: YituTech/conv-bert-base
-- `t5`: t5-base
+Save as `train_entity_ranker_all_folds.sh` and run with `chmod +x train_entity_ranker_all_folds.sh && ./train_entity_ranker_all_folds.sh`:
 
-## Pooling Modes
+```bash
+#!/bin/bash
 
-- `cls`: Uses [CLS] token representation (recommended)
-- `pooling`: Uses pooled output from BERT
+DATASET="robust04"
+DATA_DIR="data/${DATASET}/entity_folds"
+QRELS="data/${DATASET}/entity_qrels.txt"
+SAVE_ROOT="models/entity_ranker/${DATASET}"
+RUNS_ROOT="runs/entity_ranker/${DATASET}"
 
+EPOCHS=10
+BATCH_SIZE=32
+LR=2e-5
+WARMUP=1000
+MAX_LEN=512
+QUERY_ENC="bert"
+MODE="cls"
 
-## When to Use Which?
+mkdir -p ${SAVE_ROOT}
+mkdir -p ${RUNS_ROOT}
 
-### Use Classification (MonoBert) when:
-- You have labeled data with binary relevance judgments
-- You want to classify documents as relevant/non-relevant
-- You have limited training data
-- You want faster training (processes one doc at a time)
+for fold in {0..4}; do
+    echo "========================================"
+    echo "Training Entity Ranker - Fold ${fold}"
+    echo "========================================"
 
-### Use Ranking (DuoBert) when:
-- You have or can create positive/negative pairs
-- Your goal is to rank documents by relevance
-- You want better ranking performance
-- You can afford the computational cost of pairwise training
+    python train.py \
+        --train ${DATA_DIR}/fold-${fold}/entity_train.jsonl \
+        --dev ${DATA_DIR}/fold-${fold}/entity_test.jsonl \
+        --qrels ${QRELS} \
+        --save-dir ${SAVE_ROOT}/fold-${fold} \
+        --save model.bin \
+        --run dev_entity_run_fold${fold}.txt \
+        --task classification \
+        --max-len ${MAX_LEN} \
+        --query-enc ${QUERY_ENC} \
+        --mode ${MODE} \
+        --epoch ${EPOCHS} \
+        --batch-size ${BATCH_SIZE} \
+        --learning-rate ${LR} \
+        --n-warmup-steps ${WARMUP} \
+        --metric map \
+        --eval-every 1 \
+        --num-workers 4 \
+        --use-cuda \
+        --cuda 0
 
-## Important Notes
+    echo "Fold ${fold} complete."
+done
 
-1. **Task consistency**: Use the same `--task` when loading a checkpoint for testing as you used during training
+echo "Entity Ranker 5-Fold Cross-Validation Complete!"
+```
 
-2. **Data preparation**: 
-   - Classification task needs: `doc_text` field
-   - Ranking task needs: `doc_pos_text` and `doc_neg_text` fields
+---
 
-3. **Evaluation**: Both tasks use the same evaluation format (pointwise) - the difference is only in training
+## Command-Line Arguments
 
-4. **Checkpoint compatibility**: MonoBert and DuoBert checkpoints are NOT interchangeable due to different output dimensions
+### Required
+
+| Argument | Description |
+|:---------|:------------|
+| `--train` | Path to training data (JSONL) |
+| `--dev` | Path to validation data (JSONL) |
+| `--qrels` | Entity-level ground truth (TREC format) |
+| `--save-dir` | Directory to save model checkpoints |
+
+### Model Configuration
+
+| Argument | Default | Options |
+|:---------|:--------|:--------|
+| `--task` | `classification` | `classification` (MonoBERT), `ranking` (DuoBERT) |
+| `--query-enc` | `bert` | `bert`, `roberta`, `deberta`, `distilbert`, `electra`, `conv-bert`, `t5`, `ernie` |
+| `--mode` | `cls` | `cls`, `pooling` |
+| `--max-len` | `512` | Any integer ≤ 512 |
+
+**Model mapping**:
+- `bert` → `bert-base-uncased`
+- `roberta` → `roberta-base`
+- `deberta` → `microsoft/deberta-base`
+- `distilbert` → `distilbert-base-uncased`
+- `electra` → `google/electra-small-discriminator`
+- `conv-bert` → `YituTech/conv-bert-base`
+- `t5` → `t5-base`
+- `ernie` → `nghuyong/ernie-2.0-base-en`
+
+### Training Hyperparameters
+
+| Argument | Default | Recommended |
+|:---------|:--------|:------------|
+| `--epoch` | `20` | `10–20` |
+| `--batch-size` | `8` | `16–40` |
+| `--learning-rate` | `2e-5` | `1e-5` to `3e-5` |
+| `--n-warmup-steps` | `2` | `500–1000` |
+
+### Evaluation
+
+| Argument | Default | Options |
+|:---------|:--------|:--------|
+| `--metric` | `map` | `map`, `ndcg`, `ndcg_cut_20`, `P_20`, `mrr_cut_10` |
+| `--eval-every` | `1` | Any positive integer |
+
+### Output & System
+
+| Argument | Default | Description |
+|:---------|:--------|:------------|
+| `--save` | `model.bin` | Checkpoint filename |
+| `--run` | `dev.run` | Validation run filename |
+| `--checkpoint` | `None` | Path to checkpoint to resume from |
+| `--use-cuda` | `False` | Enable GPU training |
+| `--cuda` | `0` | CUDA device index |
+| `--num-workers` | `0` | DataLoader workers |
+
+---
+
+## Inference
+
+After training, generate entity rankings on test data using `test.py`. Use the same `--task`, `--query-enc`, and `--mode` as during training — MonoBERT and DuoBERT checkpoints are not interchangeable.
+
+### Single Fold
+
+```bash
+python test.py \
+  --test data/entity_folds/fold-0/entity_test.jsonl \
+  --checkpoint models/entity_ranker/fold-0/model.bin \
+  --run runs/entity_run_fold0.txt \
+  --task classification \
+  --max-len 512 \
+  --query-enc bert \
+  --mode cls \
+  --batch-size 32 \
+  --use-cuda \
+  --cuda 0
+```
+
+### All 5 Folds
+
+```bash
+#!/bin/bash
+
+DATASET="robust04"
+DATA_DIR="data/${DATASET}/entity_folds"
+MODEL_DIR="models/entity_ranker/${DATASET}"
+RUNS_DIR="runs/entity_ranker/${DATASET}"
+
+mkdir -p ${RUNS_DIR}
+
+for fold in {0..4}; do
+    echo "Generating entity rankings for fold ${fold}..."
+
+    python test.py \
+        --test ${DATA_DIR}/fold-${fold}/entity_test.jsonl \
+        --checkpoint ${MODEL_DIR}/fold-${fold}/model.bin \
+        --run ${RUNS_DIR}/entity_run_fold${fold}.txt \
+        --task classification \
+        --max-len 512 \
+        --query-enc bert \
+        --mode cls \
+        --batch-size 32 \
+        --use-cuda \
+        --cuda 0
+
+    echo "Fold ${fold} complete."
+done
+
+echo "All entity rankings generated!"
+```
+
+---
+
+## Output Files
+
+```
+models/entity_ranker/robust04/fold-0/
+├── model.bin                    # Best checkpoint
+├── dev_entity_run_fold0.txt    # Dev run from best epoch
+└── config.json                  # Model configuration
+
+runs/entity_ranker/robust04/
+└── entity_run_fold0.txt        # Test set entity rankings
+```
+
+The run files follow standard TREC format: `query_id Q0 entity_id rank score run_name`.
+
+---
+
+## Common Issues
+
+**`KeyError: 'doc_text'`** — Your data uses `"doc"` as the field name. Both are supported; the script falls back automatically via `example.get('doc_text', example.get('doc', ''))`.
+
+**Unexpected key warnings on model load** — Warnings about keys like `cls.predictions.transform.*` are normal. These are pre-training head weights not used in classification and can be safely ignored.
+
+---
+
+## Using Entity Rankings in Stage 2
+
+The run files from this step feed directly into Stage 2 document ranking:
+
+```bash
+python make_doc_ranking_data.py \
+  --entity_run runs/entity_ranker/robust04/entity_run_fold0.txt \
+  --top_k 20 \
+  ...
+```
+
+The top-20 entities per query are used to filter documents: only documents containing at least one top-K entity are retained as candidates. This entity-guided filtering is the core of the QDER pipeline.
+
+---
 
 ## References
 
-- [MonoBERT and DuoBERT paper](https://arxiv.org/abs/1901.04085)
-- [OpenMatch Framework](https://github.com/thunlp/OpenMatch)
+- [MonoBERT and DuoBERT (Nogueira et al., 2019)](https://arxiv.org/abs/1901.04085)
